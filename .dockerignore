@@ -1,0 +1,11 @@
+# Docker build context: the large circuit binaries are downloaded in the
+# Dockerfile from the official site, so they must not be sent to the daemon.
+# The small exported verification key IS needed at build time — keep it.
+circuits/*.wasm
+circuits/*.zkey
+node_modules/
+dist/
+scratch/
+.git/
+.env
+*.log
