@@ -202,7 +202,15 @@ async function handleRequest(
     if (state.timedOut) return;
     if (!verifySignature(secret, raw, req.headers[SIGNATURE_HEADER])) {
       clearTimeout(timer);
-      log("[auth] bad signature");
+      // TEMPORARY diagnostic (preflight 401 investigation): log the
+      // presented signature header and the raw body so the exact HMAC
+      // construction can be reproduced offline. The signature is a MAC,
+      // not the secret; the preflight body carries no secrets.
+      log(
+        "[auth] bad signature",
+        "header=" + String(req.headers[SIGNATURE_HEADER] ?? ""),
+        "body=" + raw.toString("utf8").slice(0, 2000),
+      );
       sendSigned(res, state, secret, 401, { error: "invalid signature" });
       return;
     }
