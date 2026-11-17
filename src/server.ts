@@ -28,8 +28,12 @@
  * platform retry of the same task_id can still be decided correctly).
  */
 import * as http from "http";
-import { loadConfig, secretBytes, type Config } from "./config";
-import { signBody, verifySignature, SIGNATURE_HEADER } from "./hmac";
+import { loadConfig, secretKeys, type Config } from "./config";
+import {
+  signBody,
+  verifySignatureMulti,
+  SIGNATURE_HEADER,
+} from "./hmac";
 import { isPreflight, preflightResponse, TASK_TYPE } from "./preflight";
 import {
   checkTimestamps,
@@ -126,7 +130,7 @@ function rejectResponse(
 }
 
 export function createServer(config: Config): http.Server {
-  const secret = secretBytes(config.hmacSecretRaw);
+  const keys = secretKeys(config.hmacSecretRaw);
   const circuitDir = resolveCircuitDir(config);
   verifyArtifacts(circuitDir);
   const vkJson = loadVerificationKey(circuitDir);
@@ -136,7 +140,7 @@ export function createServer(config: Config): http.Server {
       : null;
 
   const server = http.createServer((req, res) => {
-    void handleRequest(req, res, config, secret, circuitDir, vkJson, kurier);
+    void handleRequest(req, res, config, keys, circuitDir, vkJson, kurier);
   });
   return server;
 }
@@ -145,11 +149,16 @@ async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   config: Config,
-  secret: Buffer,
+  keys: Buffer[],
   circuitDir: string,
   vkJson: unknown,
   kurier: KurierClient | null,
 ): Promise<void> {
+  // Per-request signing key. Starts as the primary candidate (used for the
+  // health check and pre-verification errors) and is replaced by whichever
+  // candidate key matched the inbound signature, so responses are signed
+  // with the same key encoding the platform used.
+  let secret = keys[0];
   const state: RequestState = { settled: false, timedOut: false };
   const startedAt = Date.now();
   const deadlineMs = startedAt + config.requestTimeoutMs;
@@ -200,7 +209,12 @@ async function handleRequest(
       return;
     }
     if (state.timedOut) return;
-    if (!verifySignature(secret, raw, req.headers[SIGNATURE_HEADER])) {
+    const matchedKey = verifySignatureMulti(
+      keys,
+      raw,
+      req.headers[SIGNATURE_HEADER],
+    );
+    if (!matchedKey) {
       clearTimeout(timer);
       // TEMPORARY diagnostic (preflight 401 investigation): log the
       // presented signature header and the raw body so the exact HMAC
@@ -214,6 +228,7 @@ async function handleRequest(
       sendSigned(res, state, secret, 401, { error: "invalid signature" });
       return;
     }
+    secret = matchedKey;
 
     // ---- 2. Parse JSON ------------------------------------------------
     let body: unknown;
@@ -319,6 +334,7 @@ async function handleRequest(
         decision.decision === "APPROVE" ? 1 : 0,
         config,
         circuitDir,
+        secret,
       );
     } catch (err) {
       clearTimeout(timer);

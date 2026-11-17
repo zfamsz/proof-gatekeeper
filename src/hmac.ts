@@ -51,10 +51,31 @@ export function verifySignature(
   body: Buffer,
   headerValue: string | string[] | undefined,
 ): boolean {
-  if (typeof headerValue !== "string") return false;
+  return verifySignatureMulti([secret], body, headerValue) !== null;
+}
+
+/**
+ * Verify against several candidate keys (see secretKeys in config.ts).
+ * Returns the key that matched, or null. Lets the server answer with the
+ * same key encoding the platform used to sign, so response signatures stay
+ * consistent with the platform's convention.
+ */
+export function verifySignatureMulti(
+  keys: Buffer[],
+  body: Buffer,
+  headerValue: string | string[] | undefined,
+): Buffer | null {
+  if (typeof headerValue !== "string") return null;
   const presented = decodeSignature(headerValue);
-  if (presented === null) return false;
-  const expected = crypto.createHmac("sha256", secret).update(body).digest();
-  if (presented.length !== expected.length) return false;
-  return crypto.timingSafeEqual(presented, expected);
+  if (presented === null) return null;
+  for (const key of keys) {
+    const expected = crypto.createHmac("sha256", key).update(body).digest();
+    if (
+      presented.length === expected.length &&
+      crypto.timingSafeEqual(presented, expected)
+    ) {
+      return key;
+    }
+  }
+  return null;
 }

@@ -113,8 +113,13 @@ export function buildCircuitInput(
   task: GatekeeperTask,
   decision: 0 | 1,
   config: Config,
+  // Key that matched the inbound signature, when the caller verified one.
+  // Defaults to the primary key (secretBytes) so direct callers are
+  // unaffected; the server passes the matched key so the salt derivation
+  // uses the same key encoding the platform signed with.
+  secretOverride?: Buffer,
 ): { input: Record<string, string>; salt: bigint; taskIdField: bigint } {
-  const secret = secretBytes(config.hmacSecretRaw);
+  const secret = secretOverride ?? secretBytes(config.hmacSecretRaw);
   const salt = deriveSalt(task.task_id, secret, config.saltDerivation);
   const taskIdField = taskIdToField(task.task_id, config.taskIdHash);
   const inp = task.input;
@@ -142,8 +147,14 @@ export async function prove(
   decision: 0 | 1,
   config: Config,
   circuitDir: string,
+  secretOverride?: Buffer,
 ): Promise<ProveResult> {
-  const { input, salt, taskIdField } = buildCircuitInput(task, decision, config);
+  const { input, salt, taskIdField } = buildCircuitInput(
+    task,
+    decision,
+    config,
+    secretOverride,
+  );
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(
     input,
     path.join(circuitDir, EXPECTED_ARTIFACTS.wasm.file),

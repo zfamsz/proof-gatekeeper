@@ -181,6 +181,36 @@ export function secretBytes(raw: string): Buffer {
   return Buffer.from(trimmed, "utf8");
 }
 
+/**
+ * Candidate HMAC keys for one raw secret, in priority order.
+ * The official docs never state how the 32-byte secret is encoded as the
+ * HMAC key, and the platform's choice is unverified — so verification tries
+ * every plausible decoding, and the request is answered with whichever key
+ * matched, keeping response signatures consistent with the platform's
+ * convention. First entry is the historical primary (secretBytes()).
+ * Duplicates are removed.
+ */
+export function secretKeys(raw: string): Buffer[] {
+  const trimmed = raw.trim();
+  const keys: Buffer[] = [];
+  const push = (b: Buffer) => {
+    if (!keys.some((k) => k.equals(b))) keys.push(b);
+  };
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    push(Buffer.from(trimmed, "hex"));
+  }
+  if (/^[A-Za-z0-9+/=_-]{40,}$/.test(trimmed)) {
+    try {
+      const decoded = Buffer.from(trimmed, "base64");
+      if (decoded.length === 32) push(decoded);
+    } catch {
+      // fall through to UTF-8
+    }
+  }
+  push(Buffer.from(trimmed, "utf8"));
+  return keys;
+}
+
 // ---------------------------------------------------------------------------
 // Field-element helpers
 // ---------------------------------------------------------------------------
